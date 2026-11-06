@@ -3,3 +3,6 @@
 *.inf.php
 inf.php
 git_sync
+
+# Local supplied desktop bundle; Config.cfg may contain account credentials.
+Microsoft365 E5 Renew Plus/

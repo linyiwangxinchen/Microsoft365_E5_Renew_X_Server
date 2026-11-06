@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Microsoft 365 RenewX</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div><h1>Microsoft 365 RenewX</h1><p>Graph activity runner · self-hosted web console</p></div>
+      <button id="logout" class="secondary hidden">退出</button>
+    </header>
+
+    <section id="login-panel" class="panel narrow">
+      <h2>管理员登录</h2>
+      <p class="muted">登录密码只在本机服务端校验，不会发送到 Microsoft。</p>
+      <form id="login-form"><label>管理员密码<input id="login-password" type="password" required autocomplete="current-password"></label><button>登录</button></form>
+      <p id="login-error" class="error"></p>
+    </section>
+
+    <section id="app-panel" class="hidden">
+      <div class="grid stats">
+        <div class="stat"><span>账号</span><strong id="stat-accounts">0</strong></div>
+        <div class="stat"><span>运行中</span><strong id="stat-running">0</strong></div>
+        <div class="stat"><span>最近状态</span><strong id="stat-status">—</strong></div>
+      </div>
+
+      <div class="grid columns">
+        <section class="panel">
+          <div class="panel-title"><h2>添加账号</h2><span class="muted">凭据加密存储</span></div>
+          <form id="account-form">
+            <label>名称<input id="account-name" required maxlength="120" placeholder="开发租户管理员"></label>
+            <label>模式<select id="account-mode"><option value="delegated">Delegated / refresh token</option><option value="password">Username/password (ROPC)</option><option value="client_credentials">Client credentials</option></select></label>
+            <label>用户名（可选）<input id="account-username" type="email" placeholder="admin@example.onmicrosoft.com"></label>
+            <label>租户<input id="account-tenant" value="common" placeholder="common 或 tenant id"></label>
+            <label>应用 Client ID<input id="account-client-id" required placeholder="00000000-0000-0000-0000-000000000000"></label>
+            <label>Client Secret（客户端凭据必填）<input id="account-client-secret" type="password" autocomplete="off"></label>
+            <label>Refresh Token（Delegated 可填）<textarea id="account-refresh-token" rows="3" autocomplete="off"></textarea></label>
+            <label>Password（ROPC 可填）<input id="account-password" type="password" autocomplete="off"></label>
+            <label class="check"><input id="account-write" type="checkbox">允许写入类测试请求（默认关闭）</label>
+            <div class="actions"><button>保存账号</button><button id="oauth-button" type="button" class="secondary">浏览器 OAuth 授权</button></div>
+          </form>
+          <p id="account-error" class="error"></p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title"><h2>账号列表</h2><button id="refresh" class="secondary">刷新</button></div>
+          <div id="accounts" class="list empty">还没有账号</div>
+        </section>
+      </div>
+
+      <section class="panel import-panel">
+        <div class="panel-title"><h2>导入 Renew Plus 配置</h2><span class="muted">浏览器读取后直接传给本服务</span></div>
+        <p class="muted import-help">选择原桌面版的 <code>Config.cfg</code>。服务只返回导入数量和调度摘要，不会把密码或客户端密钥显示在网页上。</p>
+        <div class="actions import-actions"><input id="legacy-config-file" type="file" accept=".cfg,.json,.txt"><button id="legacy-import" type="button">导入配置</button></div>
+        <p id="import-result" class="error"></p>
+      </section>
+
+      <section class="panel settings-panel">
+        <div class="panel-title"><h2>Renew Plus 调度选项</h2><span class="muted">导入后也可在网页调整</span></div>
+        <form id="renew-settings-form">
+          <div class="settings-grid">
+            <label class="check"><input id="setting-auto-run" type="checkbox">启用自动运行</label>
+            <label class="check"><input id="setting-api-select-random" type="checkbox">每轮随机选择 API</label>
+            <label class="check"><input id="setting-api-sequence-random" type="checkbox">随机请求顺序</label>
+            <label class="check"><input id="setting-api-content-random" type="checkbox">随机请求内容/路径</label>
+          </div>
+          <div class="settings-grid compact">
+            <label>间隔最小值（秒）<input id="setting-period-start" type="number" min="500" max="86400" required></label>
+            <label>间隔最大值（秒）<input id="setting-period-end" type="number" min="500" max="86400" required></label>
+            <label>工作开始（小时）<input id="setting-work-start" type="number" min="0" max="24" required></label>
+            <label>工作结束（小时）<input id="setting-work-end" type="number" min="0" max="24" required></label>
+          </div>
+          <fieldset class="days"><legend>工作日</legend>
+            <label class="check"><input type="checkbox" data-day="1">周一</label>
+            <label class="check"><input type="checkbox" data-day="2">周二</label>
+            <label class="check"><input type="checkbox" data-day="3">周三</label>
+            <label class="check"><input type="checkbox" data-day="4">周四</label>
+            <label class="check"><input type="checkbox" data-day="5">周五</label>
+            <label class="check"><input type="checkbox" data-day="6">周六</label>
+            <label class="check"><input type="checkbox" data-day="0">周日</label>
+          </fieldset>
+          <p class="muted settings-note">SmartPause 兼容项已映射为临时指数退避；高失败率账号会在退避后自动继续，不会自动永久暂停。</p>
+          <div class="actions"><button>保存调度选项</button></div>
+        </form>
+        <p id="settings-result" class="error"></p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title"><h2>运行历史</h2><span class="muted">点击记录查看 Graph 请求明细</span></div>
+        <div id="runs" class="list empty">还没有运行记录</div>
+      </section>
+      <p class="footnote">续期资格由 Microsoft 根据真实开发活动和计划资格评估；API 调用不保证续期。请遵守 Microsoft 365 Developer Program 条款并保留租户数据备份。</p>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -5,6 +5,50 @@
 > ### [DavidDengHui](https://covear.top/ "啊晖de老窝") 整理 : [Microsoft 365 E5 白嫖教程（二）](https://covear.top/blogs/275 "Microsoft 365 E5 白嫖教程（二）")
 > ### 试用 : [Microsoft 365 E5 Renew X 主页](https://e5.covear.top "Microsoft 365 E5 Renew X 主页")
 
+## Node Web 版本（Linux Web Server / Docker）
+
+本仓库新增 `node-renewx/`，是可在 Linux Web Server 上运行的 Node.js Web 控制台，支持 Microsoft OAuth、刷新令牌、ROPC、Client Credentials、Graph 调度、Renew Plus `Config.cfg` 导入、运行日志和临时失败退避。账号密码、Client Secret、Refresh Token 只以加密形式存储；请勿把真实 `.env` 或 `Config.cfg` 提交到 GitHub。
+
+### Linux 原生部署
+
+要求 Node.js 20.11 或更新版本：
+
+```bash
+cd node-renewx
+cp .env.example .env
+nano .env
+# 至少设置 ADMIN_PASSWORD、DATA_ENCRYPTION_KEY 和 PUBLIC_BASE_URL
+set -a
+. ./.env
+set +a
+npm ci
+npm run build
+npm start
+```
+
+默认访问 `http://服务器地址:3000`。修改 `.env` 中的 `PORT` 可以更换 Node 服务端口，例如 `PORT=8080`；反向代理和 OAuth 回调地址也要同步使用新端口或域名。
+
+### Docker 部署
+
+```bash
+cd node-renewx
+cp .env.example .env
+nano .env
+docker compose up -d --build
+```
+
+Docker 对外端口由 `WEB_PORT` 控制，容器内监听端口由 `PORT` 控制。例如：
+
+```dotenv
+PORT=3000
+WEB_PORT=8080
+PUBLIC_BASE_URL=https://e5.example.com
+```
+
+此时通过 `http://服务器地址:8080` 访问；生产环境建议在 HTTPS 反向代理后运行。数据目录映射到 `node-renewx/data`，请定期备份。
+
+完整功能、环境变量、OAuth 回调、Renew Plus 配置导入和 API 说明见 [`node-renewx/README.md`](node-renewx/README.md)。
+
 ------------
 
 
