@@ -390,7 +390,12 @@ prepare_source() {
       else
         git -C "$APP_DIR" fetch --depth 1 "$REPO_URL" "$REPO_REF"
       fi
-      git -C "$APP_DIR" merge --ff-only FETCH_HEAD
+      if ! git -C "$APP_DIR" merge --ff-only FETCH_HEAD; then
+        warn "existing Git history is unrelated; replacing tracked source files with FETCH_HEAD"
+        # Tracked local changes were checked above. Ignored/untracked runtime
+        # files such as node-renewx/.env and node-renewx/data are preserved.
+        git -C "$APP_DIR" reset --hard FETCH_HEAD
+      fi
     elif [[ "${UPDATE_EXISTING:-1}" == 1 ]]; then
       refresh_archive_source
     else
