@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id)
-const state = { accounts: [], runs: [], settings: null, selectedAccount: null }
+const state = { accounts: [], settings: null, selectedAccount: null }
 
 async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, { credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(options.headers || {}) }, ...options })
@@ -15,48 +15,72 @@ function showApp(authenticated) {
   $('logout').classList.toggle('hidden', !authenticated)
 }
 
+function formatRemaining(expiresAt) {
+  if (!expiresAt) return '到期时间：未设置'
+  const remaining = expiresAt - Date.now()
+  if (remaining <= 0) return '剩余时间：已到期'
+  const days = Math.floor(remaining / 86400000)
+  const hours = Math.floor((remaining % 86400000) / 3600000)
+  const minutes = Math.floor((remaining % 3600000) / 60000)
+  return `剩余时间：${days}天 ${hours}小时 ${minutes}分钟 · ${new Date(expiresAt).toLocaleString()}`
+}
+
+function formatRate(value) {
+  return `${Number(value || 0).toFixed(1)}%`
+}
+
 function accountCard(account) {
   const card = document.createElement('article')
   card.className = 'account-card'
   const mode = account.mode === 'delegated' ? 'Delegated' : (account.mode === 'password' ? 'ROPC' : 'Client credentials')
+  const stats = account.stats || {}
   card.innerHTML = `<div class="row"><strong>${escapeHtml(account.name)}</strong><span class="badge ${account.paused ? 'warn' : 'ok'}">${account.paused ? 'paused' : (account.enabled ? 'enabled' : 'disabled')}</span></div>
     <div class="meta">${mode} · ${escapeHtml(account.clientId)} · next ${new Date(account.nextRunAt).toLocaleString()}</div>
+    <div class="account-expiry ${account.expiresAt && account.expiresAt < Date.now() ? 'expired' : ''}" data-expiry-label="${account.id}">${formatRemaining(account.expiresAt)}</div>
+    <div class="expiry-editor"><input data-expiry-input="${account.id}" type="datetime-local" value="${toLocalInputValue(account.expiresAt)}"><button class="secondary" data-expire="${account.id}">保存到期时间</button></div>
+    <div class="account-stats"><span>运行 <b>${stats.runCount || 0}</b></span><span>运行中 <b>${stats.runningCount || 0}</b></span><span>成功 <b>${stats.succeededCount || 0}</b></span><span>失败 <b>${stats.failedCount || 0}</b></span><span>请求 <b>${stats.requestCount || 0}</b></span><span>失败率 <b>${formatRate(stats.failureRate)}</b></span></div>
     <div class="actions"><button data-run="${account.id}">立即运行</button><button class="secondary" data-pause="${account.id}">${account.paused ? '恢复' : '暂停'}</button><button class="danger" data-delete="${account.id}">删除</button></div>`
-  return card
-}
-
-function runCard(run) {
-  const card = document.createElement('article')
-  card.className = 'run-card'
-  card.innerHTML = `<div class="row"><strong>${new Date(run.startedAt).toLocaleString()}</strong><span class="badge ${run.status === 'succeeded' ? 'ok' : (run.status === 'running' ? 'info' : 'warn')}" >${escapeHtml(run.status)}</span></div>
-    <div class="meta">${run.requestCount} requests · ${run.successCount} success · ${run.failCount} fail · ${escapeHtml(run.error || '')}</div>`
-  card.onclick = async () => {
-    const detail = await api(`/runs/${run.id}`)
-    const lines = (detail.logs || []).map((log) => `${log.ok ? '✓' : '✗'} ${log.apiName} ${log.status ?? '-'} ${log.durationMs}ms — ${log.message}`)
-    alert(lines.join('\n') || '没有请求日志')
-  }
   return card
 }
 
 async function load() {
   state.accounts = await api('/accounts')
-  state.runs = await api('/runs')
   state.settings = await api('/settings/renew-plus')
   renderSettings()
+  renderAccountSummary()
   const accounts = $('accounts')
   accounts.innerHTML = ''
   accounts.classList.toggle('empty', state.accounts.length === 0)
   if (!state.accounts.length) accounts.textContent = '还没有账号'
   state.accounts.forEach((account) => accounts.appendChild(accountCard(account)))
-  const runs = $('runs')
-  runs.innerHTML = ''
-  runs.classList.toggle('empty', state.runs.length === 0)
-  if (!state.runs.length) runs.textContent = '还没有运行记录'
-  state.runs.forEach((run) => runs.appendChild(runCard(run)))
   $('stat-accounts').textContent = String(state.accounts.length)
-  $('stat-running').textContent = String(state.runs.filter((run) => run.status === 'running').length)
-  $('stat-status').textContent = state.runs[0]?.status || '—'
   bindAccountActions()
+  refreshExpiryLabels()
+}
+
+function renderAccountSummary() {
+  const totalRuns = state.accounts.reduce((sum, account) => sum + Number(account.stats?.runCount || 0), 0)
+  const totalFailures = state.accounts.reduce((sum, account) => sum + Number(account.stats?.failCount || 0), 0)
+  const totalRequests = state.accounts.reduce((sum, account) => sum + Number(account.stats?.requestCount || 0), 0)
+  const running = state.accounts.reduce((sum, account) => sum + Number(account.stats?.runningCount || 0), 0)
+  $('stat-running').textContent = String(running)
+  $('stat-status').textContent = totalRequests > 0 ? `${totalRuns} 次运行 · 失败率 ${formatRate(totalFailures / totalRequests * 100)}` : '—'
+}
+
+function toLocalInputValue(timestamp) {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function refreshExpiryLabels() {
+  state.accounts.forEach((account) => {
+    const label = document.querySelector(`[data-expiry-label="${account.id}"]`)
+    if (!label) return
+    label.textContent = formatRemaining(account.expiresAt)
+    label.classList.toggle('expired', Boolean(account.expiresAt && account.expiresAt < Date.now()))
+  })
 }
 
 function renderSettings() {
@@ -88,6 +112,15 @@ function bindAccountActions() {
     if (!confirm('确定删除该账号及其运行记录吗？')) return
     try { await api(`/accounts/${button.dataset.delete}`, { method: 'DELETE' }); await load() } catch (error) { alert(error.message) }
   }))
+  document.querySelectorAll('[data-expire]').forEach((button) => button.addEventListener('click', async (event) => {
+    event.stopPropagation()
+    const input = document.querySelector(`[data-expiry-input="${button.dataset.expire}"]`)
+    const expiresAt = input?.value ? new Date(input.value).getTime() : null
+    try {
+      await api(`/accounts/${button.dataset.expire}`, { method: 'PATCH', body: JSON.stringify({ expiresAt }) })
+      await load()
+    } catch (error) { alert(error.message) }
+  }))
 }
 
 $('login-form').addEventListener('submit', async (event) => {
@@ -111,6 +144,7 @@ $('account-form').addEventListener('submit', async (event) => {
     clientSecret: $('account-client-secret').value,
     refreshToken: $('account-refresh-token').value,
     password: $('account-password').value,
+    expiresAt: $('account-expires').value ? new Date($('account-expires').value).getTime() : null,
     allowWriteActivity: $('account-write').checked,
   }
   try { await api('/accounts', { method: 'POST', body: JSON.stringify(body) }); event.target.reset(); $('account-tenant').value = 'common'; await load() } catch (error) { $('account-error').textContent = error.message }
@@ -177,3 +211,4 @@ $('renew-settings-form').addEventListener('submit', async (event) => {
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char])) }
 
 api('/auth/me').then(async () => { showApp(true); await load() }).catch(() => showApp(false))
+setInterval(refreshExpiryLabels, 60 * 1000)

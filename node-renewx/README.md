@@ -12,6 +12,8 @@
 
 浏览器只向当前 Node 服务上传用户主动选择的文件。导入接口只返回账号数量和调度摘要，不返回密码、客户端密钥或配置正文；重复的“模式 + 用户名 + Client ID”账号会跳过。导入后的高失败率处理使用本项目的临时退避策略，账号保持可恢复状态，不会自动永久暂停。
 
+账号卡片会显示该账号的运行次数、成功/失败次数、请求数和失败率。到期时间是管理员可填写的界面倒计时字段，服务不会把它当作 Microsoft 的实际订阅状态；留空时显示“未设置”。底部运行历史面板已移除，运行记录仍保存在 SQLite 中供后台统计和 API 查询。
+
 ## 编译和启动
 
 要求 Node.js 20.11 或更新版本：
@@ -63,7 +65,7 @@ https://你的域名/api/oauth/callback
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
 | POST | `/api/auth/login` | 管理员登录 |
-| GET | `/api/accounts` | 查看账号（不会返回密钥） |
+| GET | `/api/accounts` | 查看账号、每账号统计和界面到期时间（不会返回密钥） |
 | POST | `/api/accounts` | 创建账号 |
 | POST | `/api/import/legacy-config` | 导入 Renew Plus `Config.cfg`（请求体为 `text/plain`，需要管理员会话） |
 | GET/PATCH | `/api/settings/renew-plus` | 查看或修改 Web 端的 Renew Plus 调度选项 |

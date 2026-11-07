@@ -39,6 +39,7 @@
             <label>Client Secret（客户端凭据必填）<input id="account-client-secret" type="password" autocomplete="off"></label>
             <label>Refresh Token（Delegated 可填）<textarea id="account-refresh-token" rows="3" autocomplete="off"></textarea></label>
             <label>Password（ROPC 可填）<input id="account-password" type="password" autocomplete="off"></label>
+            <label>账号到期时间（可选）<input id="account-expires" type="datetime-local"><span class="muted">仅用于界面倒计时，不会伪造 Microsoft 订阅状态。</span></label>
             <label class="check"><input id="account-write" type="checkbox">允许写入类测试请求（默认关闭）</label>
             <div class="actions"><button>保存账号</button><button id="oauth-button" type="button" class="secondary">浏览器 OAuth 授权</button></div>
           </form>
@@ -88,11 +89,6 @@
         <p id="settings-result" class="error"></p>
       </section>
 
-      <section class="panel">
-        <div class="panel-title"><h2>运行历史</h2><span class="muted">点击记录查看 Graph 请求明细</span></div>
-        <div id="runs" class="list empty">还没有运行记录</div>
-      </section>
-      <p class="footnote">续期资格由 Microsoft 根据真实开发活动和计划资格评估；API 调用不保证续期。请遵守 Microsoft 365 Developer Program 条款并保留租户数据备份。</p>
     </section>
   </main>
   <script type="module" src="/app.js"></script>

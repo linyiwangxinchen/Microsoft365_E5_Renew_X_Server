@@ -119,9 +119,14 @@ const accountSchema = z.object({
   password: z.string().max(4000).optional().or(z.literal('')),
   scopes: z.array(z.string().min(1).max(200)).max(100).optional(),
   allowWriteActivity: z.boolean().optional(),
+  expiresAt: z.number().int().positive().max(4102444800000).nullable().optional(),
 })
 
-app.get('/api/accounts', authed, (_req, res) => res.json(store.listAccounts()))
+function accountView(account: ReturnType<Store['listAccounts']>[number]) {
+  return { ...account, stats: store.getAccountStats(account.id) }
+}
+
+app.get('/api/accounts', authed, (_req, res) => res.json(store.listAccounts().map(accountView)))
 
 app.post('/api/import/legacy-config', authed, (req, res) => {
   try {
@@ -186,7 +191,7 @@ app.post('/api/accounts', authed, (req, res) => {
       res.status(400).json({ error: 'client_credentials_requires_target_user_and_tenant' })
       return
     }
-    res.status(201).json(store.createAccount(input))
+    res.status(201).json(accountView(store.createAccount(input)))
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'invalid_account' })
   }
@@ -197,7 +202,7 @@ app.patch('/api/accounts/:id', authed, (req, res) => {
     const input = accountSchema.partial().extend({ enabled: z.boolean().optional(), paused: z.boolean().optional() }).parse(req.body)
     const account = store.updateAccount(String(req.params.id), input)
     if (!account) { res.status(404).json({ error: 'account_not_found' }); return }
-    res.json(account)
+    res.json(accountView(account))
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'invalid_account' })
   }

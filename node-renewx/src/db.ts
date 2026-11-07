@@ -18,6 +18,7 @@ export interface AccountInput {
   password?: string
   scopes?: string[]
   allowWriteActivity?: boolean
+  expiresAt?: number | null
 }
 
 export interface Account extends AccountInput {
@@ -29,6 +30,21 @@ export interface Account extends AccountInput {
   lastStatus: string | null
   createdAt: number
   updatedAt: number
+}
+
+export interface AccountStats {
+  runCount: number
+  runningCount: number
+  succeededCount: number
+  partialCount: number
+  failedCount: number
+  requestCount: number
+  successCount: number
+  failCount: number
+  lastRunAt: number | null
+  lastSuccessAt: number | null
+  lastFailureAt: number | null
+  failureRate: number
 }
 
 export interface RunSummary {
@@ -63,6 +79,7 @@ type AccountRow = {
   username: string | null
   tenant: string
   client_id: string
+  expires_at: number | null
   client_secret_enc: string | null
   refresh_token_enc: string | null
   password_enc: string | null
@@ -101,6 +118,7 @@ export class Store {
         username TEXT,
         tenant TEXT NOT NULL DEFAULT 'common',
         client_id TEXT NOT NULL,
+        expires_at INTEGER,
         client_secret_enc TEXT,
         refresh_token_enc TEXT,
         password_enc TEXT,
@@ -159,12 +177,16 @@ export class Store {
     if (!accountColumns.some((column) => column.name === 'password_enc')) {
       this.db.exec('ALTER TABLE accounts ADD COLUMN password_enc TEXT')
     }
+    if (!accountColumns.some((column) => column.name === 'expires_at')) {
+      this.db.exec('ALTER TABLE accounts ADD COLUMN expires_at INTEGER')
+    }
   }
 
   private rebuildLegacyAccountSchema(): void {
     const tableExists = (name: string): boolean => Boolean(this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name))
     const accountColumns = this.db.prepare('PRAGMA table_info(accounts)').all() as Array<{ name: string }>
     const passwordExpression = accountColumns.some((column) => column.name === 'password_enc') ? 'password_enc' : 'NULL'
+    const expiresExpression = accountColumns.some((column) => column.name === 'expires_at') ? 'expires_at' : 'NULL'
     this.db.pragma('foreign_keys = OFF')
     try {
       const migrate = this.db.transaction(() => {
@@ -178,6 +200,7 @@ export class Store {
             id TEXT PRIMARY KEY, name TEXT NOT NULL,
             mode TEXT NOT NULL CHECK (mode IN ('delegated', 'password', 'client_credentials')),
             username TEXT, tenant TEXT NOT NULL DEFAULT 'common', client_id TEXT NOT NULL,
+            expires_at INTEGER,
             client_secret_enc TEXT, refresh_token_enc TEXT, password_enc TEXT,
             scopes_json TEXT NOT NULL DEFAULT '[]', allow_write_activity INTEGER NOT NULL DEFAULT 0,
             enabled INTEGER NOT NULL DEFAULT 1, paused INTEGER NOT NULL DEFAULT 0,
@@ -200,8 +223,8 @@ export class Store {
             expires_at INTEGER NOT NULL
           );
         `)
-        this.db.exec(`INSERT INTO accounts (id,name,mode,username,tenant,client_id,client_secret_enc,refresh_token_enc,password_enc,scopes_json,allow_write_activity,enabled,paused,next_run_at,last_run_at,last_status,created_at,updated_at)
-          SELECT id,name,mode,username,tenant,client_id,client_secret_enc,refresh_token_enc,${passwordExpression},scopes_json,allow_write_activity,enabled,paused,next_run_at,last_run_at,last_status,created_at,updated_at FROM accounts_legacy`)
+        this.db.exec(`INSERT INTO accounts (id,name,mode,username,tenant,client_id,expires_at,client_secret_enc,refresh_token_enc,password_enc,scopes_json,allow_write_activity,enabled,paused,next_run_at,last_run_at,last_status,created_at,updated_at)
+          SELECT id,name,mode,username,tenant,client_id,${expiresExpression},client_secret_enc,refresh_token_enc,${passwordExpression},scopes_json,allow_write_activity,enabled,paused,next_run_at,last_run_at,last_status,created_at,updated_at FROM accounts_legacy`)
         if (tableExists('runs_legacy')) this.db.exec('INSERT INTO runs SELECT * FROM runs_legacy')
         if (tableExists('run_logs_legacy')) this.db.exec('INSERT INTO run_logs SELECT * FROM run_logs_legacy')
         if (tableExists('oauth_states_legacy')) this.db.exec('INSERT INTO oauth_states SELECT * FROM oauth_states_legacy')
@@ -224,6 +247,7 @@ export class Store {
       username: row.username ?? undefined,
       tenant: row.tenant,
       clientId: row.client_id,
+      expiresAt: row.expires_at === null ? null : Number(row.expires_at),
       scopes: JSON.parse(row.scopes_json) as string[],
       allowWriteActivity: Boolean(row.allow_write_activity),
       enabled: Boolean(row.enabled),
@@ -247,6 +271,40 @@ export class Store {
     return rows.map((row) => this.mapAccount(row))
   }
 
+  getAccountStats(accountId: string): AccountStats {
+    const row = this.db.prepare(`
+      SELECT
+        COUNT(*) AS run_count,
+        COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0) AS running_count,
+        COALESCE(SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END), 0) AS succeeded_count,
+        COALESCE(SUM(CASE WHEN status = 'partial' THEN 1 ELSE 0 END), 0) AS partial_count,
+        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_count,
+        COALESCE(SUM(request_count), 0) AS request_count,
+        COALESCE(SUM(success_count), 0) AS success_count,
+        COALESCE(SUM(fail_count), 0) AS fail_count,
+        MAX(started_at) AS last_run_at,
+        MAX(CASE WHEN status = 'succeeded' THEN COALESCE(finished_at, started_at) END) AS last_success_at,
+        MAX(CASE WHEN status IN ('failed', 'partial') THEN COALESCE(finished_at, started_at) END) AS last_failure_at
+      FROM runs WHERE account_id = ?
+    `).get(accountId) as Record<string, unknown>
+    const requestCount = Number(row.request_count ?? 0)
+    const failCount = Number(row.fail_count ?? 0)
+    return {
+      runCount: Number(row.run_count ?? 0),
+      runningCount: Number(row.running_count ?? 0),
+      succeededCount: Number(row.succeeded_count ?? 0),
+      partialCount: Number(row.partial_count ?? 0),
+      failedCount: Number(row.failed_count ?? 0),
+      requestCount,
+      successCount: Number(row.success_count ?? 0),
+      failCount,
+      lastRunAt: row.last_run_at === null ? null : Number(row.last_run_at),
+      lastSuccessAt: row.last_success_at === null ? null : Number(row.last_success_at),
+      lastFailureAt: row.last_failure_at === null ? null : Number(row.last_failure_at),
+      failureRate: requestCount > 0 ? Number((failCount / requestCount * 100).toFixed(1)) : 0,
+    }
+  }
+
   getAccount(id: string, includeSecrets = false): Account | null {
     const row = this.db.prepare('SELECT * FROM accounts WHERE id = ?').get(id) as AccountRow | undefined
     return row ? this.mapAccount(row, includeSecrets) : null
@@ -264,9 +322,9 @@ export class Store {
     const id = randomUUID()
     this.db.prepare(`
       INSERT INTO accounts
-      (id, name, mode, username, tenant, client_id, client_secret_enc, refresh_token_enc, password_enc,
+      (id, name, mode, username, tenant, client_id, expires_at, client_secret_enc, refresh_token_enc, password_enc,
        scopes_json, allow_write_activity, enabled, paused, next_run_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)
     `).run(
       id,
       input.name.trim(),
@@ -274,6 +332,7 @@ export class Store {
       input.username?.trim() || null,
       input.tenant?.trim() || 'common',
       input.clientId.trim(),
+      input.expiresAt ?? null,
       encryptSecret(input.clientSecret, config.encryptionKey),
       encryptSecret(input.refreshToken, config.encryptionKey),
       encryptSecret(input.password, config.encryptionKey),
@@ -293,7 +352,7 @@ export class Store {
     const now = Date.now()
     this.db.prepare(`
       UPDATE accounts SET name = ?, mode = ?, username = ?, tenant = ?, client_id = ?,
-        client_secret_enc = ?, refresh_token_enc = ?, password_enc = ?, scopes_json = ?, allow_write_activity = ?,
+        expires_at = ?, client_secret_enc = ?, refresh_token_enc = ?, password_enc = ?, scopes_json = ?, allow_write_activity = ?,
         enabled = ?, paused = ?, updated_at = ? WHERE id = ?
     `).run(
       next.name.trim(),
@@ -301,6 +360,7 @@ export class Store {
       next.username?.trim() || null,
       next.tenant?.trim() || 'common',
       next.clientId.trim(),
+      next.expiresAt ?? null,
       encryptSecret(input.clientSecret ?? current.clientSecret, config.encryptionKey),
       encryptSecret(input.refreshToken ?? current.refreshToken, config.encryptionKey),
       encryptSecret(input.password ?? current.password, config.encryptionKey),
