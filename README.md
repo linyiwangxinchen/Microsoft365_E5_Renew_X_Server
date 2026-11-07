@@ -30,6 +30,36 @@ npm start
 
 ### Docker 部署
 
+#### 一键安装
+
+在一台已经安装 Docker 的 Linux 服务器上，可以直接执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server/master/install-docker.sh | sudo bash
+```
+
+脚本会把项目放到 `/opt/microsoft365-e5-renewx`，交互式创建 Web 管理员密码和数据加密密钥，生成 `.env`，构建容器并等待健康检查。Docker 未安装时可显式允许脚本使用 Docker 官方安装器：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server/master/install-docker.sh | sudo bash -s -- --install-docker
+```
+
+修改对外端口时，在运行脚本前传入 `WEB_PORT`，例如使用 8080：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server/master/install-docker.sh | sudo env WEB_PORT=8080 bash
+```
+
+也可以先下载脚本再查看后执行：
+
+```bash
+curl -fL https://raw.githubusercontent.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server/master/install-docker.sh -o install-docker.sh
+chmod +x install-docker.sh
+sudo ./install-docker.sh --web-port 8080
+```
+
+脚本会保留已有 `.env` 和 `node-renewx/data`，不会读取、复制或上传本地 `Config.cfg`。更新时重复执行即可；已有源码存在未提交修改时，脚本会停止以避免覆盖。
+
 ```bash
 cd node-renewx
 cp .env.example .env

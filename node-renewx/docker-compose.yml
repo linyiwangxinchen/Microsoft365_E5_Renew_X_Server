@@ -4,6 +4,7 @@ services:
     container_name: renewx-node
     restart: unless-stopped
     env_file: .env
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
     ports:
       - "${WEB_PORT:-3000}:${PORT:-3000}"
     volumes:
