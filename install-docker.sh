@@ -6,12 +6,14 @@ set -Eeuo pipefail
 
 readonly DEFAULT_REPO_URL="https://github.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server.git"
 readonly DEFAULT_REPO_REF="master"
+readonly DEFAULT_GH_PROXY_BASE="https://gh-proxy.org"
 readonly DEFAULT_INSTALL_DIR="/opt/microsoft365-e5-renewx"
 readonly DEFAULT_WEB_PORT="3000"
 readonly DEFAULT_CONTAINER_PORT="3000"
 
 REPO_URL="${REPO_URL:-$DEFAULT_REPO_URL}"
 REPO_REF="${REPO_REF:-$DEFAULT_REPO_REF}"
+GH_PROXY_BASE="${GH_PROXY_BASE:-$DEFAULT_GH_PROXY_BASE}"
 APP_DIR="${APP_DIR:-}"
 WEB_PORT="${WEB_PORT:-}"
 PORT="${PORT:-}"
@@ -52,6 +54,8 @@ Options:
   --port PORT            Port used inside the container (default: 3000)
   --repo URL             Git repository to install
   --ref REF              Git branch or tag (default: master)
+  --proxy URL            GitHub proxy prefix (default: https://gh-proxy.org)
+  --no-proxy             Use GitHub directly
   --install-docker       Install Docker with get.docker.com if missing
   --no-install-docker    Fail instead of installing Docker if missing
   --non-interactive      Require ADMIN_PASSWORD when no terminal is available
@@ -61,6 +65,7 @@ Options:
 Environment variables can be used instead of options, for example:
   WEB_PORT=8080 bash install-docker.sh
   ADMIN_PASSWORD='change-me' WEB_PORT=8080 bash install-docker.sh
+  GH_PROXY_BASE=https://ghproxy.net bash install-docker.sh
 EOF
 }
 
@@ -90,6 +95,15 @@ while (($# > 0)); do
       (($# >= 2)) || die "--ref requires a branch or tag"
       REPO_REF="$2"
       shift 2
+      ;;
+    --proxy)
+      (($# >= 2)) || die "--proxy requires a URL"
+      GH_PROXY_BASE="${2%/}"
+      shift 2
+      ;;
+    --no-proxy)
+      GH_PROXY_BASE=""
+      shift
       ;;
     --install-docker)
       INSTALL_DOCKER=1
@@ -198,6 +212,22 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+proxy_url() {
+  local url="$1"
+  if [[ -z "$GH_PROXY_BASE" ]]; then
+    printf '%s' "$url"
+  else
+    printf '%s/%s' "${GH_PROXY_BASE%/}" "$url"
+  fi
+}
+
+git_proxy_config() {
+  if [[ -z "$GH_PROXY_BASE" ]]; then
+    return 0
+  fi
+  printf '%s' "url.${GH_PROXY_BASE%/}/https://github.com/.insteadOf=https://github.com/"
+}
+
 as_root() {
   if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
     "$@"
@@ -294,7 +324,13 @@ clone_repository() {
 
   if command_exists git; then
     log "Cloning $REPO_URL ($REPO_REF)"
-    git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$APP_DIR"
+    local git_proxy
+    git_proxy="$(git_proxy_config)"
+    if [[ -n "$git_proxy" ]]; then
+      git -c "$git_proxy" clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$APP_DIR"
+    else
+      git clone --depth 1 --branch "$REPO_REF" "$REPO_URL" "$APP_DIR"
+    fi
     return 0
   fi
 
@@ -304,7 +340,7 @@ clone_repository() {
   temp_dir="$(mktemp -d)"
   trap 'rm -rf "$temp_dir"' RETURN
   log "git is unavailable; downloading the GitHub source archive"
-  curl -fsSL "${archive_base}/archive/refs/heads/${REPO_REF}.tar.gz" -o "$temp_dir/source.tar.gz"
+  curl -fsSL "$(proxy_url "${archive_base}/archive/refs/heads/${REPO_REF}.tar.gz")" -o "$temp_dir/source.tar.gz"
   tar -xzf "$temp_dir/source.tar.gz" -C "$temp_dir"
   extracted="$(find "$temp_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"
   [[ -n "$extracted" ]] || die "unable to unpack the repository archive"
@@ -320,7 +356,13 @@ prepare_source() {
         die "existing source has local tracked changes; commit or stash them before updating"
       fi
       log "Updating existing source"
-      git -C "$APP_DIR" fetch --depth 1 "$REPO_URL" "$REPO_REF"
+      local git_proxy
+      git_proxy="$(git_proxy_config)"
+      if [[ -n "$git_proxy" ]]; then
+        git -C "$APP_DIR" -c "$git_proxy" fetch --depth 1 "$REPO_URL" "$REPO_REF"
+      else
+        git -C "$APP_DIR" fetch --depth 1 "$REPO_URL" "$REPO_REF"
+      fi
       git -C "$APP_DIR" merge --ff-only FETCH_HEAD
     else
       log "Using existing source at $APP_DIR"
@@ -447,6 +489,7 @@ RenewX Docker installation is ready.
   Directory: ${APP_DIR}
   Env file:  ${ENV_FILE}
   Data:      ${APP_DIR}/node-renewx/data
+  Proxy:     ${GH_PROXY_BASE:-disabled}
 
 Useful commands:
   ${COMPOSE_CMD[*]} -f ${APP_DIR}/node-renewx/docker-compose.yml --env-file ${ENV_FILE} ps
