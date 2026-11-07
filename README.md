@@ -60,6 +60,27 @@ sudo ./install-docker.sh --web-port 8080
 
 脚本默认使用 `https://gh-proxy.org` 加速 GitHub 的脚本、源码归档和 Git clone；如该代理不可用，可改用另一个兼容前缀，例如 `GH_PROXY_BASE=https://ghproxy.net`，或执行 `--no-proxy` 直连 GitHub。脚本会保留已有 `.env` 和 `node-renewx/data`，不会读取、复制或上传本地 `Config.cfg`。更新时重复执行即可；已有源码存在未提交修改时，脚本会停止以避免覆盖。
 
+#### 更新已部署版本
+
+重复执行同一个一键命令即可更新源码、重新构建并重启容器：
+
+```bash
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server/master/install-docker.sh | sudo bash
+```
+
+如果之前使用了其他安装目录，指定原目录：
+
+```bash
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server/master/install-docker.sh | sudo bash -s -- --dir /opt/microsoft365-e5-renewx
+```
+
+脚本会保留 `.env` 和 `node-renewx/data`；有 Git 元数据时使用快进更新，没有 Git 元数据时下载最新源码归档覆盖代码文件。只想重新构建当前代码时，可以执行：
+
+```bash
+cd /opt/microsoft365-e5-renewx/node-renewx
+sudo docker compose --env-file .env up -d --build
+```
+
 ```bash
 cd node-renewx
 cp .env.example .env

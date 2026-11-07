@@ -349,6 +349,33 @@ clone_repository() {
   rm -rf "$temp_dir"
 }
 
+refresh_archive_source() {
+  local archive_base="${REPO_URL%.git}"
+  local temp_dir extracted preserved_env preserved_data
+  temp_dir="$(mktemp -d)"
+  trap 'rm -rf "$temp_dir"' RETURN
+  log "Updating source from the GitHub archive"
+  curl -fsSL "$(proxy_url "${archive_base}/archive/refs/heads/${REPO_REF}.tar.gz")" -o "$temp_dir/source.tar.gz"
+  tar -xzf "$temp_dir/source.tar.gz" -C "$temp_dir"
+  extracted="$(find "$temp_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+  [[ -n "$extracted" && -f "$extracted/node-renewx/docker-compose.yml" ]] || die "unable to unpack a valid RenewX source archive"
+
+  preserved_env="$temp_dir/preserved.env"
+  preserved_data="$temp_dir/preserved-data"
+  if [[ -f "$APP_DIR/node-renewx/.env" ]]; then
+    cp "$APP_DIR/node-renewx/.env" "$preserved_env"
+    cp "$preserved_env" "$extracted/node-renewx/.env"
+  fi
+  if [[ -d "$APP_DIR/node-renewx/data" ]]; then
+    cp -a "$APP_DIR/node-renewx/data" "$preserved_data"
+    rm -rf "$extracted/node-renewx/data"
+    cp -a "$preserved_data" "$extracted/node-renewx/data"
+  fi
+  cp -a "$extracted/." "$APP_DIR/"
+  trap - RETURN
+  rm -rf "$temp_dir"
+}
+
 prepare_source() {
   if [[ -f "$APP_DIR/node-renewx/docker-compose.yml" && -f "$APP_DIR/node-renewx/Dockerfile" ]]; then
     if [[ -d "$APP_DIR/.git" && "${UPDATE_EXISTING:-1}" == 1 ]]; then
@@ -364,6 +391,8 @@ prepare_source() {
         git -C "$APP_DIR" fetch --depth 1 "$REPO_URL" "$REPO_REF"
       fi
       git -C "$APP_DIR" merge --ff-only FETCH_HEAD
+    elif [[ "${UPDATE_EXISTING:-1}" == 1 ]]; then
+      refresh_archive_source
     else
       log "Using existing source at $APP_DIR"
     fi
