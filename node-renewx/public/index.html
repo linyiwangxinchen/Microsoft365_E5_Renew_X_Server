@@ -9,8 +9,8 @@
 <body>
   <main class="shell">
     <header class="topbar">
-      <div><h1>Microsoft 365 RenewX</h1><p>Graph activity runner · self-hosted web console</p></div>
-      <button id="logout" class="secondary hidden">退出</button>
+      <div class="brand-lockup"><div class="brand-mark" aria-hidden="true">R</div><div><p class="eyebrow">MICROSOFT 365 · CONTROL CENTER</p><h1>RenewX</h1><p>Graph activity runner · self-hosted web console</p></div></div>
+      <button id="logout" class="secondary hidden">退出登录</button>
     </header>
 
     <section id="login-panel" class="panel narrow">
@@ -22,9 +22,9 @@
 
     <section id="app-panel" class="hidden">
       <div class="grid stats">
-        <div class="stat"><span>账号</span><strong id="stat-accounts">0</strong></div>
-        <div class="stat"><span>运行中</span><strong id="stat-running">0</strong></div>
-        <div class="stat"><span>最近状态</span><strong id="stat-status">—</strong></div>
+        <div class="stat"><span class="stat-label"><span class="stat-dot blue"></span>账号</span><strong id="stat-accounts">0</strong><small>已接入的租户账号</small></div>
+        <div class="stat"><span class="stat-label"><span class="stat-dot green"></span>运行中</span><strong id="stat-running">0</strong><small>当前执行中的任务</small></div>
+        <div class="stat"><span class="stat-label"><span class="stat-dot purple"></span>最近状态</span><strong id="stat-status">—</strong><small>最近运行汇总</small></div>
       </div>
 
       <div class="grid columns">
@@ -91,6 +91,7 @@
 
     </section>
   </main>
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

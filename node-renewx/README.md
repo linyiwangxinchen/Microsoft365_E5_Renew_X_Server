@@ -36,6 +36,20 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+从 GitHub 一键安装 Docker 版本：
+
+```bash
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server/master/install-docker.sh | sudo bash
+```
+
+更新已经部署的 Docker 版本：
+
+```bash
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server/master/update-docker.sh | sudo bash
+```
+
+更新脚本只替换代码并重新构建镜像，会保留现有 `.env` 和 `data`。需要更换端口或安装目录时，可传入 `--web-port`、`--dir` 等参数；代理不可用时加 `--no-proxy`。
+
 生产环境建议把站点放在 HTTPS 反向代理后，并设置 `PUBLIC_BASE_URL` 为用户实际访问地址。若使用 OAuth 授权码流程，把以下回调地址登记到 Entra 应用：
 
 ```text

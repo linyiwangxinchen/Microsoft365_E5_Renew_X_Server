@@ -68,6 +68,18 @@ sudo ./install-docker.sh --web-port 8080
 curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server/master/install-docker.sh | sudo bash
 ```
 
+也可以使用专用更新脚本。它会保留现有的 `node-renewx/.env` 和 `node-renewx/data`，拉取最新源码后重新构建并等待健康检查：
+
+```bash
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server/master/update-docker.sh | sudo bash
+```
+
+如果服务器无法访问代理，可直连 GitHub：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/linyiwangxinchen/Microsoft365_E5_Renew_X_Server/master/update-docker.sh | sudo bash -s -- --no-proxy
+```
+
 如果之前使用了其他安装目录，指定原目录：
 
 ```bash

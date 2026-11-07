@@ -433,8 +433,9 @@ export class Store {
   }
 
   setAccountSchedule(id: string, nextRunAt: number, status?: string): void {
-    this.db.prepare('UPDATE accounts SET next_run_at = ?, last_status = ?, updated_at = ? WHERE id = ?')
-      .run(nextRunAt, status ?? null, Date.now(), id)
+    const now = Date.now()
+    this.db.prepare('UPDATE accounts SET next_run_at = ?, last_run_at = ?, last_status = ?, updated_at = ? WHERE id = ?')
+      .run(nextRunAt, now, status ?? null, now, id)
   }
 
   dueAccounts(now = Date.now()): Account[] {
