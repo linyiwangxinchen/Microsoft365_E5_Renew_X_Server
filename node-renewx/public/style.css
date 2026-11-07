@@ -35,11 +35,8 @@ button.danger { background: #8b3447; }
 .account-card .actions { justify-content: flex-start; margin-top: 12px; flex-wrap: wrap; }
 .account-card button { font-size: .8rem; padding: 7px 10px; }
 .meta { color: #91a1bf; font-size: .78rem; margin-top: 7px; overflow-wrap: anywhere; }
-.account-expiry { color: #c7d7ff; font-size: .82rem; margin-top: 10px; }
-.account-expiry.expired { color: #ff9aab; }
-.expiry-editor { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
-.expiry-editor input { padding: 7px 8px; font-size: .78rem; max-width: 220px; }
-.expiry-editor button { white-space: nowrap; }
+.subscription-expiry { color: #c7d7ff; font-size: .82rem; margin-top: 10px; }
+.subscription-expiry.expired { color: #ff9aab; }
 .account-stats { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 10px; color: #91a1bf; font-size: .76rem; }
 .account-stats b { color: #e7ecf7; font-weight: 650; }
 .badge { border-radius: 999px; padding: 4px 8px; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; }

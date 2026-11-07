@@ -3,9 +3,9 @@ import { randomBytes } from 'node:crypto'
 import express, { type Request, type Response } from 'express'
 import { z } from 'zod'
 import { config, assertConfig } from './config.js'
-import { Store } from './db.js'
+import { Store, type Account } from './db.js'
 import { clearSession, login, requireAuth, sessionToken, setSession } from './auth.js'
-import { exchangeAuthorizationCode } from './graph.js'
+import { exchangeAuthorizationCode, exchangeClientCredentials, exchangePassword, exchangeRefreshToken, fetchDirectorySubscriptionStatus, type TokenBundle } from './graph.js'
 import { Scheduler } from './scheduler.js'
 import { catalog } from './catalog.js'
 import { optionsSummary, parseLegacyConfig, type LegacySchedulerOptions } from './legacy-config.js'
@@ -119,11 +119,10 @@ const accountSchema = z.object({
   password: z.string().max(4000).optional().or(z.literal('')),
   scopes: z.array(z.string().min(1).max(200)).max(100).optional(),
   allowWriteActivity: z.boolean().optional(),
-  expiresAt: z.number().int().positive().max(4102444800000).nullable().optional(),
 })
 
 function accountView(account: ReturnType<Store['listAccounts']>[number]) {
-  return { ...account, stats: store.getAccountStats(account.id) }
+  return { ...account, stats: store.getAccountStats(account.id), subscription: store.getSubscriptionStatus(account.id) }
 }
 
 app.get('/api/accounts', authed, (_req, res) => res.json(store.listAccounts().map(accountView)))
@@ -205,6 +204,38 @@ app.patch('/api/accounts/:id', authed, (req, res) => {
     res.json(accountView(account))
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'invalid_account' })
+  }
+})
+
+async function tokenForAccount(account: Account): Promise<TokenBundle> {
+  if (account.mode === 'client_credentials') return exchangeClientCredentials(account)
+  if (account.mode === 'password') return exchangePassword(account)
+  return exchangeRefreshToken(account)
+}
+
+app.post('/api/accounts/:id/subscription-status', authed, async (req, res) => {
+  try {
+    const account = store.getAccount(String(req.params.id), true)
+    if (!account) { res.status(404).json({ error: 'account_not_found' }); return }
+    const token = await tokenForAccount(account)
+    if (token.refreshToken && token.refreshToken !== account.refreshToken) {
+      store.updateAccount(account.id, { refreshToken: token.refreshToken })
+    }
+    const subscription = await fetchDirectorySubscriptionStatus(token.accessToken)
+    store.setSubscriptionStatus(account.id, { ...subscription, error: subscription.error ?? null })
+    res.json({ accountId: account.id, subscription: store.getSubscriptionStatus(account.id) })
+  } catch (error) {
+    const message = (error instanceof Error ? error.message : String(error)).slice(0, 500)
+    store.setSubscriptionStatus(String(req.params.id), {
+      expiresAt: null,
+      status: null,
+      sku: null,
+      isTrial: null,
+      checkedAt: Date.now(),
+      source: 'graph-directory-subscriptions',
+      error: message,
+    })
+    res.status(502).json({ error: 'subscription_status_unavailable', message })
   }
 })
 

@@ -18,7 +18,6 @@ export interface AccountInput {
   password?: string
   scopes?: string[]
   allowWriteActivity?: boolean
-  expiresAt?: number | null
 }
 
 export interface Account extends AccountInput {
@@ -45,6 +44,16 @@ export interface AccountStats {
   lastSuccessAt: number | null
   lastFailureAt: number | null
   failureRate: number
+}
+
+export interface AccountSubscription {
+  expiresAt: number | null
+  status: string | null
+  sku: string | null
+  isTrial: boolean | null
+  checkedAt: number | null
+  source: string | null
+  error: string | null
 }
 
 export interface RunSummary {
@@ -169,6 +178,16 @@ export class Store {
         value_json TEXT NOT NULL,
         updated_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS account_subscriptions (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        expires_at INTEGER,
+        status TEXT,
+        sku TEXT,
+        is_trial INTEGER,
+        checked_at INTEGER,
+        source TEXT,
+        error TEXT
+      );
       CREATE INDEX IF NOT EXISTS idx_accounts_due ON accounts(enabled, paused, next_run_at);
       CREATE INDEX IF NOT EXISTS idx_runs_account ON runs(account_id, started_at DESC);
       CREATE INDEX IF NOT EXISTS idx_logs_run ON run_logs(run_id, id);
@@ -247,7 +266,6 @@ export class Store {
       username: row.username ?? undefined,
       tenant: row.tenant,
       clientId: row.client_id,
-      expiresAt: row.expires_at === null ? null : Number(row.expires_at),
       scopes: JSON.parse(row.scopes_json) as string[],
       allowWriteActivity: Boolean(row.allow_write_activity),
       enabled: Boolean(row.enabled),
@@ -305,6 +323,44 @@ export class Store {
     }
   }
 
+  getSubscriptionStatus(accountId: string): AccountSubscription {
+    const row = this.db.prepare('SELECT * FROM account_subscriptions WHERE account_id = ?').get(accountId) as Record<string, unknown> | undefined
+    if (!row) return { expiresAt: null, status: null, sku: null, isTrial: null, checkedAt: null, source: null, error: null }
+    return {
+      expiresAt: row.expires_at === null ? null : Number(row.expires_at),
+      status: row.status === null ? null : String(row.status),
+      sku: row.sku === null ? null : String(row.sku),
+      isTrial: row.is_trial === null ? null : Boolean(row.is_trial),
+      checkedAt: row.checked_at === null ? null : Number(row.checked_at),
+      source: row.source === null ? null : String(row.source),
+      error: row.error === null ? null : String(row.error),
+    }
+  }
+
+  setSubscriptionStatus(accountId: string, status: AccountSubscription): void {
+    this.db.prepare(`
+      INSERT INTO account_subscriptions (account_id, expires_at, status, sku, is_trial, checked_at, source, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(account_id) DO UPDATE SET
+        expires_at = excluded.expires_at,
+        status = excluded.status,
+        sku = excluded.sku,
+        is_trial = excluded.is_trial,
+        checked_at = excluded.checked_at,
+        source = excluded.source,
+        error = excluded.error
+    `).run(
+      accountId,
+      status.expiresAt,
+      status.status,
+      status.sku,
+      status.isTrial === null ? null : (status.isTrial ? 1 : 0),
+      status.checkedAt,
+      status.source,
+      status.error,
+    )
+  }
+
   getAccount(id: string, includeSecrets = false): Account | null {
     const row = this.db.prepare('SELECT * FROM accounts WHERE id = ?').get(id) as AccountRow | undefined
     return row ? this.mapAccount(row, includeSecrets) : null
@@ -322,9 +378,9 @@ export class Store {
     const id = randomUUID()
     this.db.prepare(`
       INSERT INTO accounts
-      (id, name, mode, username, tenant, client_id, expires_at, client_secret_enc, refresh_token_enc, password_enc,
+      (id, name, mode, username, tenant, client_id, client_secret_enc, refresh_token_enc, password_enc,
        scopes_json, allow_write_activity, enabled, paused, next_run_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)
     `).run(
       id,
       input.name.trim(),
@@ -332,7 +388,6 @@ export class Store {
       input.username?.trim() || null,
       input.tenant?.trim() || 'common',
       input.clientId.trim(),
-      input.expiresAt ?? null,
       encryptSecret(input.clientSecret, config.encryptionKey),
       encryptSecret(input.refreshToken, config.encryptionKey),
       encryptSecret(input.password, config.encryptionKey),
@@ -352,7 +407,7 @@ export class Store {
     const now = Date.now()
     this.db.prepare(`
       UPDATE accounts SET name = ?, mode = ?, username = ?, tenant = ?, client_id = ?,
-        expires_at = ?, client_secret_enc = ?, refresh_token_enc = ?, password_enc = ?, scopes_json = ?, allow_write_activity = ?,
+        client_secret_enc = ?, refresh_token_enc = ?, password_enc = ?, scopes_json = ?, allow_write_activity = ?,
         enabled = ?, paused = ?, updated_at = ? WHERE id = ?
     `).run(
       next.name.trim(),
@@ -360,7 +415,6 @@ export class Store {
       next.username?.trim() || null,
       next.tenant?.trim() || 'common',
       next.clientId.trim(),
-      next.expiresAt ?? null,
       encryptSecret(input.clientSecret ?? current.clientSecret, config.encryptionKey),
       encryptSecret(input.refreshToken ?? current.refreshToken, config.encryptionKey),
       encryptSecret(input.password ?? current.password, config.encryptionKey),

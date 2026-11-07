@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id)
-const state = { accounts: [], settings: null, selectedAccount: null }
+const state = { accounts: [], settings: null, selectedAccount: null, subscriptionRefreshStarted: false }
 
 async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, { credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(options.headers || {}) }, ...options })
@@ -15,14 +15,18 @@ function showApp(authenticated) {
   $('logout').classList.toggle('hidden', !authenticated)
 }
 
-function formatRemaining(expiresAt) {
-  if (!expiresAt) return '到期时间：未设置'
-  const remaining = expiresAt - Date.now()
-  if (remaining <= 0) return '剩余时间：已到期'
+function formatSubscription(subscription) {
+  if (!subscription?.checkedAt) return { text: '订阅状态：未读取', expired: false, error: false }
+  if (subscription.error) return { text: `订阅读取失败：${subscription.error}`, expired: false, error: true }
+  if (!subscription.expiresAt) return { text: '订阅状态：未找到 E5 生命周期记录', expired: false, error: true }
+  const remaining = subscription.expiresAt - Date.now()
+  if (remaining <= 0) return { text: `订阅剩余：已到期 · ${new Date(subscription.expiresAt).toLocaleString()}`, expired: true, error: true }
   const days = Math.floor(remaining / 86400000)
   const hours = Math.floor((remaining % 86400000) / 3600000)
   const minutes = Math.floor((remaining % 3600000) / 60000)
-  return `剩余时间：${days}天 ${hours}小时 ${minutes}分钟 · ${new Date(expiresAt).toLocaleString()}`
+  const sku = subscription.sku ? ` · ${subscription.sku}` : ''
+  const status = subscription.status ? ` · 状态 ${subscription.status}` : ''
+  return { text: `E5 订阅剩余：${days}天 ${hours}小时 ${minutes}分钟 · ${new Date(subscription.expiresAt).toLocaleString()}${sku}${status}`, expired: false, error: false }
 }
 
 function formatRate(value) {
@@ -34,12 +38,12 @@ function accountCard(account) {
   card.className = 'account-card'
   const mode = account.mode === 'delegated' ? 'Delegated' : (account.mode === 'password' ? 'ROPC' : 'Client credentials')
   const stats = account.stats || {}
+  const subscription = formatSubscription(account.subscription)
   card.innerHTML = `<div class="row"><strong>${escapeHtml(account.name)}</strong><span class="badge ${account.paused ? 'warn' : 'ok'}">${account.paused ? 'paused' : (account.enabled ? 'enabled' : 'disabled')}</span></div>
     <div class="meta">${mode} · ${escapeHtml(account.clientId)} · next ${new Date(account.nextRunAt).toLocaleString()}</div>
-    <div class="account-expiry ${account.expiresAt && account.expiresAt < Date.now() ? 'expired' : ''}" data-expiry-label="${account.id}">${formatRemaining(account.expiresAt)}</div>
-    <div class="expiry-editor"><input data-expiry-input="${account.id}" type="datetime-local" value="${toLocalInputValue(account.expiresAt)}"><button class="secondary" data-expire="${account.id}">保存到期时间</button></div>
+    <div class="subscription-expiry ${subscription.expired || subscription.error ? 'expired' : ''}" data-subscription-label="${account.id}">${escapeHtml(subscription.text)}</div>
     <div class="account-stats"><span>运行 <b>${stats.runCount || 0}</b></span><span>运行中 <b>${stats.runningCount || 0}</b></span><span>成功 <b>${stats.succeededCount || 0}</b></span><span>失败 <b>${stats.failedCount || 0}</b></span><span>请求 <b>${stats.requestCount || 0}</b></span><span>失败率 <b>${formatRate(stats.failureRate)}</b></span></div>
-    <div class="actions"><button data-run="${account.id}">立即运行</button><button class="secondary" data-pause="${account.id}">${account.paused ? '恢复' : '暂停'}</button><button class="danger" data-delete="${account.id}">删除</button></div>`
+    <div class="actions"><button data-run="${account.id}">立即运行</button><button class="secondary" data-subscription="${account.id}">刷新订阅</button><button class="secondary" data-pause="${account.id}">${account.paused ? '恢复' : '暂停'}</button><button class="danger" data-delete="${account.id}">删除</button></div>`
   return card
 }
 
@@ -55,7 +59,7 @@ async function load() {
   state.accounts.forEach((account) => accounts.appendChild(accountCard(account)))
   $('stat-accounts').textContent = String(state.accounts.length)
   bindAccountActions()
-  refreshExpiryLabels()
+  void refreshStaleSubscriptions()
 }
 
 function renderAccountSummary() {
@@ -67,19 +71,22 @@ function renderAccountSummary() {
   $('stat-status').textContent = totalRequests > 0 ? `${totalRuns} 次运行 · 失败率 ${formatRate(totalFailures / totalRequests * 100)}` : '—'
 }
 
-function toLocalInputValue(timestamp) {
-  if (!timestamp) return ''
-  const date = new Date(timestamp)
-  const pad = (value) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+async function refreshStaleSubscriptions() {
+  if (state.subscriptionRefreshStarted) return
+  state.subscriptionRefreshStarted = true
+  const stale = state.accounts.filter((account) => !account.subscription?.checkedAt || Date.now() - account.subscription.checkedAt > 6 * 60 * 60 * 1000)
+  if (!stale.length) return
+  await Promise.allSettled(stale.map((account) => api(`/accounts/${account.id}/subscription-status`, { method: 'POST', body: '{}' })))
+  await load()
 }
 
-function refreshExpiryLabels() {
+function refreshSubscriptionLabels() {
   state.accounts.forEach((account) => {
-    const label = document.querySelector(`[data-expiry-label="${account.id}"]`)
+    const label = document.querySelector(`[data-subscription-label="${account.id}"]`)
     if (!label) return
-    label.textContent = formatRemaining(account.expiresAt)
-    label.classList.toggle('expired', Boolean(account.expiresAt && account.expiresAt < Date.now()))
+    const subscription = formatSubscription(account.subscription)
+    label.textContent = subscription.text
+    label.classList.toggle('expired', subscription.expired || subscription.error)
   })
 }
 
@@ -112,14 +119,10 @@ function bindAccountActions() {
     if (!confirm('确定删除该账号及其运行记录吗？')) return
     try { await api(`/accounts/${button.dataset.delete}`, { method: 'DELETE' }); await load() } catch (error) { alert(error.message) }
   }))
-  document.querySelectorAll('[data-expire]').forEach((button) => button.addEventListener('click', async (event) => {
+  document.querySelectorAll('[data-subscription]').forEach((button) => button.addEventListener('click', async (event) => {
     event.stopPropagation()
-    const input = document.querySelector(`[data-expiry-input="${button.dataset.expire}"]`)
-    const expiresAt = input?.value ? new Date(input.value).getTime() : null
-    try {
-      await api(`/accounts/${button.dataset.expire}`, { method: 'PATCH', body: JSON.stringify({ expiresAt }) })
-      await load()
-    } catch (error) { alert(error.message) }
+    button.disabled = true
+    try { await api(`/accounts/${button.dataset.subscription}/subscription-status`, { method: 'POST', body: '{}' }); await load() } catch (error) { alert(error.message) } finally { button.disabled = false }
   }))
 }
 
@@ -129,7 +132,7 @@ $('login-form').addEventListener('submit', async (event) => {
   try { await api('/auth/login', { method: 'POST', body: JSON.stringify({ password: $('login-password').value }) }); showApp(true); await load() } catch { $('login-error').textContent = '密码错误或服务不可用' }
 })
 
-$('logout').addEventListener('click', async () => { await api('/auth/logout', { method: 'POST' }); showApp(false) })
+$('logout').addEventListener('click', async () => { await api('/auth/logout', { method: 'POST' }); state.subscriptionRefreshStarted = false; showApp(false) })
 $('refresh').addEventListener('click', () => load().catch((error) => alert(error.message)))
 
 $('account-form').addEventListener('submit', async (event) => {
@@ -144,10 +147,9 @@ $('account-form').addEventListener('submit', async (event) => {
     clientSecret: $('account-client-secret').value,
     refreshToken: $('account-refresh-token').value,
     password: $('account-password').value,
-    expiresAt: $('account-expires').value ? new Date($('account-expires').value).getTime() : null,
     allowWriteActivity: $('account-write').checked,
   }
-  try { await api('/accounts', { method: 'POST', body: JSON.stringify(body) }); event.target.reset(); $('account-tenant').value = 'common'; await load() } catch (error) { $('account-error').textContent = error.message }
+  try { await api('/accounts', { method: 'POST', body: JSON.stringify(body) }); event.target.reset(); $('account-tenant').value = 'common'; state.subscriptionRefreshStarted = false; await load() } catch (error) { $('account-error').textContent = error.message }
 })
 
 $('oauth-button').addEventListener('click', () => {
@@ -173,6 +175,7 @@ $('legacy-import').addEventListener('click', async () => {
     $('import-result').className = 'success'
     $('import-result').textContent = `${format}：导入 ${result.imported} 个账号，跳过 ${result.skipped} 个；API ${result.options.apiCount} 个，间隔 ${result.options.periodStartTime}-${result.options.periodEndTime} 秒。`
     input.value = ''
+    state.subscriptionRefreshStarted = false
     await load()
   } catch (error) {
     $('import-result').className = 'error'
@@ -208,7 +211,20 @@ $('renew-settings-form').addEventListener('submit', async (event) => {
   }
 })
 
+$('refresh-subscriptions').addEventListener('click', async () => {
+  const button = $('refresh-subscriptions')
+  button.disabled = true
+  try {
+    const results = await Promise.allSettled(state.accounts.map((account) => api(`/accounts/${account.id}/subscription-status`, { method: 'POST', body: '{}' })))
+    const failures = results.filter((result) => result.status === 'rejected').length
+    await load()
+    if (failures > 0) alert(`${failures} 个账号读取失败，请检查 Graph 权限和账号授权状态。`)
+  } finally {
+    button.disabled = false
+  }
+})
+
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char])) }
 
 api('/auth/me').then(async () => { showApp(true); await load() }).catch(() => showApp(false))
-setInterval(refreshExpiryLabels, 60 * 1000)
+setInterval(refreshSubscriptionLabels, 60 * 1000)

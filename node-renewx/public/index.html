@@ -39,7 +39,7 @@
             <label>Client Secret（客户端凭据必填）<input id="account-client-secret" type="password" autocomplete="off"></label>
             <label>Refresh Token（Delegated 可填）<textarea id="account-refresh-token" rows="3" autocomplete="off"></textarea></label>
             <label>Password（ROPC 可填）<input id="account-password" type="password" autocomplete="off"></label>
-            <label>账号到期时间（可选）<input id="account-expires" type="datetime-local"><span class="muted">仅用于界面倒计时，不会伪造 Microsoft 订阅状态。</span></label>
+            <span class="muted">订阅到期时间通过 Graph 的租户订阅接口读取；需要应用具备相应目录/许可证读取权限。</span>
             <label class="check"><input id="account-write" type="checkbox">允许写入类测试请求（默认关闭）</label>
             <div class="actions"><button>保存账号</button><button id="oauth-button" type="button" class="secondary">浏览器 OAuth 授权</button></div>
           </form>
@@ -47,7 +47,7 @@
         </section>
 
         <section class="panel">
-          <div class="panel-title"><h2>账号列表</h2><button id="refresh" class="secondary">刷新</button></div>
+          <div class="panel-title"><h2>账号列表</h2><div class="actions"><button id="refresh" class="secondary">刷新</button><button id="refresh-subscriptions" class="secondary">刷新订阅状态</button></div></div>
           <div id="accounts" class="list empty">还没有账号</div>
         </section>
       </div>

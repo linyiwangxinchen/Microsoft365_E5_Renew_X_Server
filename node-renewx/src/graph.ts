@@ -17,6 +17,16 @@ export interface GraphResult {
   durationMs: number
 }
 
+export interface DirectorySubscriptionStatus {
+  expiresAt: number | null
+  status: string | null
+  sku: string | null
+  isTrial: boolean | null
+  checkedAt: number
+  source: 'graph-directory-subscriptions'
+  error?: string
+}
+
 function tokenEndpoint(tenant: string): string {
   return `https://login.microsoftonline.com/${encodeURIComponent(tenant || 'common')}/oauth2/v2.0/token`
 }
@@ -109,6 +119,74 @@ export async function exchangeAuthorizationCode(input: {
     refreshToken: body.refresh_token ? String(body.refresh_token) : undefined,
     expiresIn: Number(body.expires_in ?? 3600),
   }
+}
+
+function isE5Sku(sku: string): boolean {
+  const normalized = sku.toUpperCase()
+  return normalized.includes('ENTERPRISEPREMIUM') || normalized.includes('DEVELOPER') || normalized.includes('E5')
+}
+
+export async function fetchDirectorySubscriptionStatus(accessToken: string): Promise<DirectorySubscriptionStatus> {
+  const url = 'https://graph.microsoft.com/v1.0/directory/subscriptions?$select=skuPartNumber,status,isTrial,nextLifecycleDateTime'
+  const startedAt = Date.now()
+  let response: Response | null = null
+  let lastMessage = 'subscription status request failed'
+  for (let attempt = 0; attempt <= config.maxRetries; attempt += 1) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), config.requestTimeoutMs)
+    try {
+      response = await fetch(url, {
+        headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
+        signal: controller.signal,
+      })
+      const text = await response.text()
+      if (!response.ok) {
+        lastMessage = parseBody(text)
+        if ((response.status === 429 || response.status >= 500) && attempt < config.maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs(response, attempt)))
+          continue
+        }
+        throw new Error(`${lastMessage} (HTTP ${response.status})`)
+      }
+      const body = JSON.parse(text) as { value?: Array<Record<string, unknown>> }
+      const subscriptions = Array.isArray(body.value) ? body.value : []
+      const candidates = subscriptions
+        .map((item) => ({
+          sku: typeof item.skuPartNumber === 'string' ? item.skuPartNumber : '',
+          status: typeof item.status === 'string' ? item.status : null,
+          isTrial: typeof item.isTrial === 'boolean' ? item.isTrial : null,
+          expiresAt: typeof item.nextLifecycleDateTime === 'string' ? Date.parse(item.nextLifecycleDateTime) : Number.NaN,
+        }))
+        .filter((item) => isE5Sku(item.sku) && Number.isFinite(item.expiresAt) && item.status?.toLowerCase() !== 'deleted')
+        .sort((left, right) => {
+          const leftPriority = left.sku.toUpperCase().includes('ENTERPRISEPREMIUM') ? 0 : 1
+          const rightPriority = right.sku.toUpperCase().includes('ENTERPRISEPREMIUM') ? 0 : 1
+          return leftPriority - rightPriority || left.expiresAt - right.expiresAt
+        })
+      const selected = candidates[0]
+      return {
+        expiresAt: selected ? selected.expiresAt : null,
+        status: selected?.status ?? null,
+        sku: selected?.sku || null,
+        isTrial: selected?.isTrial ?? null,
+        checkedAt: startedAt,
+        source: 'graph-directory-subscriptions',
+        ...(selected ? {} : { error: 'e5_subscription_not_found' }),
+      }
+    } catch (error) {
+      lastMessage = error instanceof Error ? error.message : String(error)
+      if (attempt >= config.maxRetries) {
+        throw new Error(lastMessage.slice(0, 500))
+      }
+      if (response && response.status !== 429 && response.status < 500) {
+        throw new Error(lastMessage.slice(0, 500))
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs(response, attempt)))
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  throw new Error(lastMessage.slice(0, 500))
 }
 
 function parseBody(text: string): string {

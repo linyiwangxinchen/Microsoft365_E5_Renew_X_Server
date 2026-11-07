@@ -12,7 +12,7 @@
 
 浏览器只向当前 Node 服务上传用户主动选择的文件。导入接口只返回账号数量和调度摘要，不返回密码、客户端密钥或配置正文；重复的“模式 + 用户名 + Client ID”账号会跳过。导入后的高失败率处理使用本项目的临时退避策略，账号保持可恢复状态，不会自动永久暂停。
 
-账号卡片会显示该账号的运行次数、成功/失败次数、请求数和失败率。到期时间是管理员可填写的界面倒计时字段，服务不会把它当作 Microsoft 的实际订阅状态；留空时显示“未设置”。底部运行历史面板已移除，运行记录仍保存在 SQLite 中供后台统计和 API 查询。
+账号卡片会显示该账号的运行次数、成功/失败次数、请求数和失败率。点击“刷新订阅”后，服务使用该账号的 Graph 令牌读取 `/v1.0/directory/subscriptions`，从匹配的 E5 订阅的 `nextLifecycleDateTime` 显示剩余时间、SKU 和状态。此接口需要 `LicenseAssignment.Read.All` 或更高目录读取权限；权限不足时网页显示读取失败原因，不会回退到手工猜测。Microsoft Developer Program 仪表盘的会员订阅日期可能与租户许可证生命周期提示不同，建议同时核对仪表盘。底部运行历史面板已移除，运行记录仍保存在 SQLite 中供后台统计和 API 查询。
 
 ## 编译和启动
 
@@ -58,6 +58,10 @@ https://你的域名/api/oauth/callback
 
 填写租户、目标用户 UPN、应用 Client ID 和 Client Secret。目标用户用于把旧版 `/me/...` 请求转换为 `/users/{UPN}/...`，租户不能使用 `common`。应用必须已经获得所需的 Microsoft Graph application permissions，并完成管理员同意。该模式只选择目录中标记为可用的 app-only 请求。
 
+### 读取 E5 实际订阅生命周期
+
+账号卡片的“刷新订阅”调用 Microsoft Graph `GET /v1.0/directory/subscriptions`，匹配 E5 SKU 并显示 `nextLifecycleDateTime`。应用需要 `LicenseAssignment.Read.All`，或使用 `Organization.Read.All` / `Directory.Read.All` 等更高权限，并完成管理员同意；Delegated 账号还需要具备受支持的 Entra 目录读取角色。Microsoft Developer Program 仪表盘显示的是开发者计划会员侧日期，可能与租户许可证生命周期不同，Graph 无法保证两者完全一致。
+
 ## API
 
 除 `/api/health` 外都需要管理员会话：
@@ -65,11 +69,12 @@ https://你的域名/api/oauth/callback
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
 | POST | `/api/auth/login` | 管理员登录 |
-| GET | `/api/accounts` | 查看账号、每账号统计和界面到期时间（不会返回密钥） |
+| GET | `/api/accounts` | 查看账号、每账号统计和订阅状态（不会返回密钥） |
 | POST | `/api/accounts` | 创建账号 |
 | POST | `/api/import/legacy-config` | 导入 Renew Plus `Config.cfg`（请求体为 `text/plain`，需要管理员会话） |
 | GET/PATCH | `/api/settings/renew-plus` | 查看或修改 Web 端的 Renew Plus 调度选项 |
 | PATCH | `/api/accounts/:id` | 修改、暂停或恢复账号 |
+| POST | `/api/accounts/:id/subscription-status` | 从 Microsoft Graph 刷新该账号的租户订阅生命周期 |
 | POST | `/api/accounts/:id/run` | 立即创建运行任务 |
 | GET | `/api/runs` | 查看运行历史 |
 | GET | `/api/runs/:id` | 查看请求明细 |
